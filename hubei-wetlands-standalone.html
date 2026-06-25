@@ -1,0 +1,1031 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>湖北省湿地分布地图 | Hubei Wetlands Map</title>
+
+    <!-- ========== Leaflet CSS（国内 CDN 优先，自带回退） ========== -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css"
+          onerror="this.onerror=null;this.href='https://cdn.bootcdn.net/ajax/libs/leaflet/1.9.4/leaflet.min.css';"
+          crossorigin="" />
+
+    <style>
+        /* ============================================================
+           全局样式 & 自适应布局
+           ============================================================ */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        html, body {
+            width: 100%;
+            height: 100%;
+            font-family: "Microsoft YaHei", "PingFang SC", "Helvetica Neue", Arial, sans-serif;
+            overflow: hidden;
+            background: #1a3a2a;
+        }
+
+        /* ============================================================
+           地图容器：铺满整个浏览器窗口
+           ============================================================ */
+        #map {
+            width: 100%;
+            height: 100%;
+            z-index: 1;
+        }
+
+        /* ============================================================
+           顶部标题栏
+           ============================================================ */
+        .title-bar {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            z-index: 1000;
+            pointer-events: none;  /* 让地图拖拽可以穿透标题栏空白区域 */
+            padding: 16px 20px;
+            background: linear-gradient(180deg,
+                rgba(10, 40, 20, 0.85) 0%,
+                rgba(10, 40, 20, 0.50) 70%,
+                rgba(10, 40, 20, 0.00) 100%);
+        }
+        .title-bar .inner {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            max-width: 800px;
+        }
+        .title-bar .logo {
+            width: 42px;
+            height: 42px;
+            pointer-events: auto;
+            /* 湿地水滴 SVG 图标 */
+        }
+        .title-bar h1 {
+            font-size: 26px;
+            font-weight: 700;
+            color: #fff;
+            text-shadow: 0 2px 8px rgba(0,0,0,0.5);
+            letter-spacing: 2px;
+            white-space: nowrap;
+        }
+        .title-bar .subtitle {
+            font-size: 13px;
+            color: rgba(255,255,255,0.75);
+            text-shadow: 0 1px 4px rgba(0,0,0,0.4);
+            letter-spacing: 1px;
+        }
+
+        /* ============================================================
+           底部信息栏
+           ============================================================ */
+        .info-bar {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            z-index: 1000;
+            pointer-events: none;
+            padding: 0 20px 12px;
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-end;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+        .info-bar .wetland-count {
+            background: rgba(10, 40, 20, 0.80);
+            color: #c8e6c9;
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 13px;
+            letter-spacing: 1px;
+            pointer-events: auto;
+            backdrop-filter: blur(6px);
+            border: 1px solid rgba(255,255,255,0.12);
+        }
+        .info-bar .wetland-count strong {
+            color: #69f0ae;
+            font-size: 20px;
+            margin: 0 4px;
+        }
+
+        /* ============================================================
+           图例面板
+           ============================================================ */
+        .legend-panel {
+            position: absolute;
+            bottom: 70px;
+            right: 16px;
+            z-index: 1000;
+            background: rgba(255,255,255,0.92);
+            backdrop-filter: blur(8px);
+            border-radius: 10px;
+            padding: 14px 16px;
+            font-size: 12px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.18);
+            border: 1px solid rgba(0,0,0,0.06);
+            min-width: 130px;
+        }
+        .legend-panel h4 {
+            margin: 0 0 8px;
+            font-size: 13px;
+            color: #1b5e20;
+            letter-spacing: 1px;
+        }
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 5px;
+            color: #333;
+        }
+        .legend-dot {
+            width: 14px;
+            height: 14px;
+            border-radius: 50%;
+            flex-shrink: 0;
+            border: 2px solid #fff;
+            box-shadow: 0 1px 4px rgba(0,0,0,0.25);
+        }
+        .legend-dot.ramsar  { background: #e53935; }  /* 国际重要湿地—红色 */
+        .legend-dot.national { background: #1e88e5; }  /* 国家级保护区—蓝色 */
+        .legend-dot.provincial { background: #43a047; } /* 省级—绿色 */
+        .legend-dot.other { background: #fb8c00; }      /* 其他—橙色 */
+
+        /* ============================================================
+           Leaflet 缩放控件位置微调
+           ============================================================ */
+        .leaflet-control-zoom {
+            margin-right: 16px !important;
+            margin-top: 80px !important;
+        }
+
+        /* ============================================================
+           自定义弹窗样式（紧凑布局，限制高度确保内容可见）
+           ============================================================ */
+        .wetland-popup {
+            max-width: 360px;
+            max-height: 52vh;
+            overflow-y: auto;
+            font-size: 13px;
+            line-height: 1.55;
+            color: #333;
+            scrollbar-width: thin;
+            scrollbar-color: #c8e6c9 #f1f8e9;
+        }
+        .wetland-popup::-webkit-scrollbar { width: 5px; }
+        .wetland-popup::-webkit-scrollbar-track { background: #f1f8e9; border-radius: 3px; }
+        .wetland-popup::-webkit-scrollbar-thumb { background: #a5d6a7; border-radius: 3px; }
+
+        .wetland-popup .popup-header {
+            text-align: center;
+            margin-bottom: 6px;
+        }
+        .wetland-popup .popup-header h2 {
+            font-size: 17px;
+            color: #1b5e20;
+            margin: 0 0 2px;
+            letter-spacing: 1px;
+        }
+        .wetland-popup .popup-header .badge {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 10px;
+            font-size: 10px;
+            color: #fff;
+            letter-spacing: 0.5px;
+        }
+        .badge-ramsar    { background: #e53935; }
+        .badge-national  { background: #1e88e5; }
+        .badge-provincial { background: #43a047; }
+        .badge-other     { background: #fb8c00; }
+
+        /* 弹窗被拖拽时的偏移 */
+        .leaflet-popup.dragged {
+            /* JS 通过 transform 动态设置偏移量 */
+        }
+
+        /* 湿地实景图片 */
+        .wetland-popup .hero-img {
+            width: 100%;
+            height: 130px;
+            object-fit: cover;
+            border-radius: 6px;
+            margin-bottom: 8px;
+            background: #e8f5e9;
+            display: block;
+        }
+
+        /* 鸟类统计数字 */
+        .wetland-popup .bird-stats {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            margin-bottom: 8px;
+            padding: 6px 10px;
+            background: linear-gradient(135deg, #e8f5e9, #c8e6c9);
+            border-radius: 6px;
+        }
+        .bird-stats .count-num {
+            font-size: 28px;
+            font-weight: 800;
+            color: #2e7d32;
+        }
+        .bird-stats .count-label {
+            font-size: 11px;
+            color: #33691e;
+            line-height: 1.3;
+        }
+
+        /* 鸟类种类列表 */
+        .wetland-popup .bird-gallery {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(70px, 1fr));
+            gap: 5px;
+            margin-bottom: 8px;
+        }
+        .bird-card {
+            text-align: center;
+            background: #f9fbe7;
+            border-radius: 6px;
+            padding: 3px;
+            border: 1px solid #e0e0e0;
+        }
+        .bird-card img {
+            width: 100%;
+            height: 42px;
+            object-fit: cover;
+            border-radius: 3px;
+            display: block;
+            background: #e0e0e0;
+        }
+        .bird-card .bird-name {
+            font-size: 10px;
+            color: #555;
+            margin-top: 2px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        /* 生态概况文字 */
+        .wetland-popup .eco-summary {
+            padding: 7px 10px;
+            background: #fffde7;
+            border-left: 3px solid #f9a825;
+            border-radius: 0 4px 4px 0;
+            font-size: 12px;
+            color: #4e342e;
+            line-height: 1.65;
+            text-align: justify;
+            margin-bottom: 2px;
+        }
+
+        /* ============================================================
+           响应式：小屏幕适配
+           ============================================================ */
+        @media (max-width: 768px) {
+            .title-bar h1 { font-size: 18px; }
+            .title-bar .subtitle { font-size: 11px; }
+            .wetland-popup { max-width: 88vw; max-height: 45vh; font-size: 12px; }
+            .wetland-popup .bird-gallery { grid-template-columns: repeat(auto-fill, minmax(55px, 1fr)); gap: 4px; }
+            .wetland-popup .bird-card img { height: 35px; }
+            .legend-panel { bottom: 55px; right: 8px; font-size: 11px; padding: 10px 12px; }
+        }
+
+        /* ============================================================
+           自定义湿地标记点样式（水滴形图标 + 呼吸光环）
+           ============================================================ */
+        .custom-marker {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .marker-inner {
+            position: relative;
+            width: 36px;
+            height: 36px;
+            background: #1565c0;
+            border: 3px solid #fff;
+            border-radius: 50% 50% 50% 0;
+            transform: rotate(-45deg);
+            box-shadow:
+                0 0 0 6px rgba(30,136,229,0.22),   /* 外光环 */
+                0 4px 14px rgba(0,0,0,0.40);
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        .marker-inner.ramsar {
+            background: #e53935;
+            box-shadow: 0 0 0 6px rgba(229,57,53,0.25), 0 4px 14px rgba(0,0,0,0.40);
+        }
+        .marker-inner.national {
+            background: #1e88e5;
+            box-shadow: 0 0 0 6px rgba(30,136,229,0.22), 0 4px 14px rgba(0,0,0,0.40);
+        }
+        .marker-inner.provincial {
+            background: #43a047;
+            box-shadow: 0 0 0 6px rgba(67,160,71,0.25), 0 4px 14px rgba(0,0,0,0.40);
+        }
+        .marker-inner.other {
+            background: #fb8c00;
+            box-shadow: 0 0 0 6px rgba(251,140,0,0.25), 0 4px 14px rgba(0,0,0,0.40);
+        }
+        .marker-inner::after {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%) rotate(45deg);
+            width: 12px;
+            height: 12px;
+            background: #fff;
+            border-radius: 50%;
+        }
+        /* 呼吸动画：光环向外扩散 */
+        @keyframes markerPulse {
+            0%   { box-shadow: 0 0 0 6px currentShadow, 0 4px 14px rgba(0,0,0,0.4); }
+            100% { box-shadow: 0 0 0 14px transparent, 0 4px 14px rgba(0,0,0,0.4); }
+        }
+        .marker-inner {
+            animation: markerPulse 2.4s ease-out infinite;
+        }
+        /* 悬停放大 */
+        .custom-marker:hover .marker-inner {
+            transform: rotate(-45deg) scale(1.30);
+            box-shadow:
+                0 0 0 10px rgba(255,255,255,0.45),
+                0 6px 20px rgba(0,0,0,0.50);
+        }
+    </style>
+</head>
+<body>
+
+    <!-- ============================================================
+         地图容器
+         ============================================================ -->
+    <div id="map"></div>
+
+    <!-- ============================================================
+         顶部标题栏
+         ============================================================ -->
+    <div class="title-bar">
+        <div class="inner">
+            <!-- 湿地 Logo：水滴 + 芦苇 SVG -->
+            <svg class="logo" viewBox="0 0 42 42" xmlns="http://www.w3.org/2000/svg">
+                <defs>
+                    <linearGradient id="dropGrad" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stop-color="#4fc3f7"/>
+                        <stop offset="100%" stop-color="#0d47a1"/>
+                    </linearGradient>
+                </defs>
+                <path d="M21 4 C10 18, 6 28, 12 34 C16 38, 26 38, 30 34 C36 28, 32 18, 21 4Z"
+                      fill="url(#dropGrad)" stroke="#fff" stroke-width="1.5" opacity="0.95"/>
+                <line x1="21" y1="24" x2="21" y2="34" stroke="#fff" stroke-width="1.2" opacity="0.8"/>
+                <ellipse cx="18" cy="20" rx="5" ry="2.5" fill="#a5d6a7" opacity="0.7"/>
+                <ellipse cx="24" cy="19" rx="4" ry="2" fill="#81c784" opacity="0.6"/>
+            </svg>
+            <div>
+                <h1>湖北省湿地分布地图</h1>
+                <div class="subtitle">Hubei Province Wetlands · 千湖之省 百鸟之乡</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ============================================================
+         图例
+         ============================================================ -->
+    <div class="legend-panel" id="legendPanel">
+        <h4>🌿 湿地类型</h4>
+        <div class="legend-item"><span class="legend-dot ramsar"></span> 国际重要湿地</div>
+        <div class="legend-item"><span class="legend-dot national"></span> 国家级保护区</div>
+        <div class="legend-item"><span class="legend-dot provincial"></span> 省级保护区</div>
+        <div class="legend-item"><span class="legend-dot other"></span> 其他重要湿地</div>
+    </div>
+
+    <!-- ============================================================
+         底部信息
+         ============================================================ -->
+    <div class="info-bar">
+        <div class="wetland-count">
+            共收录 <strong id="totalCount">12</strong> 处湿地 · 标记数 <strong id="markerCount">—</strong>
+        </div>
+        <div style="color:rgba(255,255,255,0.5);font-size:11px;">
+            点击标记查看详情 🐦
+        </div>
+    </div>
+
+    <!-- ============================================================
+         Leaflet JS（国内 CDN 优先 + 多层回退）
+         依次尝试：BootCDN → cdnjs → 本地报错提示
+         ============================================================ -->
+    <script>
+    (function() {
+        var CDN_LIST = [
+            'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js',
+            'https://cdn.bootcdn.net/ajax/libs/leaflet/1.9.4/leaflet.min.js'
+        ];
+        var loaded = false;
+        function tryNext(i) {
+            if (i >= CDN_LIST.length) {
+                // 全部 CDN 失败，显示错误提示
+                document.getElementById('map').innerHTML =
+                    '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#fff;text-align:center;font-size:16px;padding:40px;">' +
+                    '<div><h2 style="color:#ff8a80;">⚠️ 地图库加载失败</h2>' +
+                    '<p style="margin-top:12px;">请检查网络连接，确保可访问以下任一 CDN：</p>' +
+                    '<p style="font-size:13px;opacity:0.7;margin-top:8px;">' + CDN_LIST.join('<br>') + '</p>' +
+                    '<p style="margin-top:16px;font-size:13px;">也可尝试使用 VPN 或代理后刷新页面。</p></div></div>';
+                return;
+            }
+            var s = document.createElement('script');
+            s.src = CDN_LIST[i];
+            s.onload = function() { loaded = true; };
+            s.onerror = function() { if (!loaded) tryNext(i + 1); };
+            document.head.appendChild(s);
+        }
+        tryNext(0);
+    })();
+    </script>
+
+    <script>
+    /* ================================================================
+       地图主逻辑 —— 等待 Leaflet 加载完成后执行
+       ================================================================ */
+    (function waitForLeaflet() {
+        if (typeof L === 'undefined') {
+            // Leaflet 还没加载完，50ms 后重试（最多等 15 秒）
+            if (!waitForLeaflet._tries) waitForLeaflet._tries = 0;
+            if (++waitForLeaflet._tries > 300) {
+                console.error('Leaflet 加载超时，请检查网络');
+                return;
+            }
+            setTimeout(waitForLeaflet, 50);
+            return;
+        }
+        initMap();
+    })();
+
+    function initMap() {
+    /* ================================================================
+       一、湿地数据定义
+       每个湿地对象包含：
+         - name         湿地名称
+         - lat, lng     经纬度坐标
+         - type         保护类型（ramsar | national | provincial | other）
+         - heroImg      实景景色图片 URL
+         - birdCount    栖息鸟类总数量
+         - birds[]      鸟类具体种类列表（name + img）
+         - summary      生态概况总结文字
+       ================================================================ */
+
+    const wetlandsData = [
+        {
+            name: '洪湖湿地',
+            lat: 29.82,
+            lng: 113.45,
+            type: 'ramsar',
+            heroImg: 'images/wetland_01.jpg',
+            birdCount: 138,
+            birds: [
+                { name: '东方白鹳', img: 'images/wetland_02.jpg' },
+                { name: '白琵鹭',   img: 'images/wetland_03.jpg' },
+                { name: '小天鹅',   img: 'images/wetland_04.jpg' },
+                { name: '青头潜鸭', img: 'images/wetland_05.jpg' },
+                { name: '白鹭',     img: 'images/wetland_06.jpg' },
+            ],
+            summary: '洪湖是湖北省最大的淡水湖，也是中国第七大淡水湖，水域面积约348平方公里。2008年被列入国际重要湿地名录（Ramsar Site）。洪湖湿地生态系统完整，水生植物丰富，为东亚—澳大利西亚迁徙路线上的候鸟提供了至关重要的停歇地与越冬地。每年秋冬季节，数以万计的雁鸭类、鹤类在此栖息觅食，场面蔚为壮观。'
+        },
+        {
+            name: '沉湖湿地',
+            lat: 30.45,
+            lng: 113.85,
+            type: 'ramsar',
+            heroImg: 'images/wetland_07.jpg',
+            birdCount: 153,
+            birds: [
+                { name: '白鹤',     img: 'images/wetland_08.jpg' },
+                { name: '东方白鹳', img: 'images/wetland_09.jpg' },
+                { name: '豆雁',     img: 'images/wetland_10.jpg' },
+                { name: '灰鹤',     img: 'images/wetland_11.jpg' },
+                { name: '丹顶鹤',   img: 'images/wetland_12.jpg' },
+            ],
+            summary: '沉湖湿地位于武汉市蔡甸区西南部，是江汉平原典型淡水湖泊沼泽湿地，2013年列入国际重要湿地名录。沉湖是东亚迁徙通道上水鸟的关键越冬地之一，每年记录到的水鸟数量超过5万只。这里栖息着全球极危物种青头潜鸭，以及白鹤、东方白鹳等国家一级保护鸟类，被国际鸟盟认定为"国际重要鸟区（IBA）"。'
+        },
+        {
+            name: '东湖湿地',
+            lat: 30.55,
+            lng: 114.37,
+            type: 'national',
+            heroImg: 'images/wetland_13.jpg',
+            birdCount: 85,
+            birds: [
+                { name: '夜鹭',     img: 'images/wetland_14.png' },
+                { name: '池鹭',     img: 'images/wetland_15.jpg' },
+                { name: '普通翠鸟', img: 'images/wetland_16.jpg' },
+                { name: '红嘴鸥',   img: 'images/wetland_17.jpg' },
+            ],
+            summary: '武汉东湖是中国最大的城中湖，水域面积33平方公里，是国家级风景名胜区和国家湿地公园。东湖生态系统多样，涵盖湖泊、湖滨湿地、人工湿地等多种类型，为众多水鸟和林鸟提供了栖息环境。冬季有大量红嘴鸥来此越冬，是武汉市民亲近自然、观鸟赏景的绝佳去处。'
+        },
+        {
+            name: '梁子湖湿地',
+            lat: 30.23,
+            lng: 114.52,
+            type: 'provincial',
+            heroImg: 'images/wetland_18.jpg',
+            birdCount: 107,
+            birds: [
+                { name: '斑嘴鸭',   img: 'images/wetland_19.jpg' },
+                { name: '绿头鸭',   img: 'images/wetland_20.jpg' },
+                { name: '苍鹭',     img: 'images/wetland_21.jpg' },
+                { name: '须浮鸥',   img: 'images/wetland_22.jpg' },
+                { name: '牛背鹭',   img: 'images/wetland_23.jpg' },
+            ],
+            summary: '梁子湖是湖北省第二大淡水湖，水域面积约270平方公里，跨武汉、鄂州、黄石三市。湖区水质优良，水生植被覆盖率高，是长江中游重要的淡水湖泊湿地生态系统。梁子湖湿地为大量越冬水鸟提供了栖息地和觅食场所，也是著名的"武昌鱼"原产地。'
+        },
+        {
+            name: '网湖湿地',
+            lat: 29.92,
+            lng: 115.28,
+            type: 'ramsar',
+            heroImg: 'images/wetland_24.jpg',
+            birdCount: 162,
+            birds: [
+                { name: '白鹤',     img: 'images/wetland_25.jpg' },
+                { name: '黑鹳',     img: 'images/wetland_26.jpg' },
+                { name: '白枕鹤',   img: 'images/wetland_27.jpg' },
+                { name: '鸿雁',     img: 'images/wetland_28.jpg' },
+                { name: '赤麻鸭',   img: 'images/wetland_29.jpg' },
+            ],
+            summary: '网湖湿地位于黄石市阳新县，是长江中游下段的大型浅水湖泊湿地。2018年被列入国际重要湿地名录。网湖是东亚—澳大利西亚候鸟迁飞路线上极为重要的中转站和越冬地，每年在此越冬的水鸟超过4万只，鸟类种类多达160余种，其中包括全球濒危的白鹤、黑鹳等珍稀物种。'
+        },
+        {
+            name: '龙感湖湿地',
+            lat: 30.02,
+            lng: 116.02,
+            type: 'national',
+            heroImg: 'images/wetland_30.jpg',
+            birdCount: 145,
+            birds: [
+                { name: '白头鹤',   img: 'images/wetland_31.jpg' },
+                { name: '白额雁',   img: 'images/wetland_32.jpg' },
+                { name: '白琵鹭',   img: 'images/wetland_33.jpg' },
+                { name: '小天鹅',   img: 'images/wetland_34.jpg' },
+            ],
+            summary: '龙感湖国家级自然保护区位于黄冈市黄梅县，地处鄂、皖、赣三省交界处，是长江中下游大型通江湖泊湿地。保护区拥有完整的湖泊—沼泽—草甸生态系统，是白头鹤等珍稀鹤类在长江中下游的重要越冬地，每年约有全球总数1/3的白头鹤来此越冬，被誉为"白头鹤之乡"。'
+        },
+        {
+            name: '大九湖湿地',
+            lat: 31.48,
+            lng: 110.05,
+            type: 'national',
+            heroImg: 'images/wetland_35.png',
+            birdCount: 72,
+            birds: [
+                { name: '灰鹤',     img: 'images/wetland_36.jpg' },
+                { name: '绿头鸭',   img: 'images/wetland_37.jpg' },
+                { name: '苍鹭',     img: 'images/wetland_38.jpg' },
+                { name: '普通翠鸟', img: 'images/wetland_39.jpg' },
+            ],
+            summary: '大九湖国家湿地公园位于神农架林区西北部，海拔约1730米，是中国中部地区海拔最高、面积最大的亚高山泥炭藓湿地，被誉为"华中屋脊上的明珠"。大九湖湿地是汉江一级支流堵河的源头，生态地位极其重要。这里的高山草甸、湖泊和沼泽为众多鸟类提供了独特的高海拔栖息环境。'
+        },
+        {
+            name: '丹江口水库湿地',
+            lat: 32.55,
+            lng: 111.50,
+            type: 'national',
+            heroImg: 'images/wetland_40.jpg',
+            birdCount: 95,
+            birds: [
+                { name: '中华秋沙鸭', img: 'images/wetland_41.jpg' },
+                { name: '鸳鸯',       img: 'images/wetland_42.jpg' },
+                { name: '赤麻鸭',     img: 'images/wetland_43.jpg' },
+                { name: '苍鹭',       img: 'images/wetland_44.jpg' },
+            ],
+            summary: '丹江口水库是亚洲最大的人工淡水湖，也是南水北调中线工程的水源地，横跨湖北、河南两省。库区湿地面积广阔，水质优良，为众多水鸟提供了良好的栖息环境。这里栖息着国家一级保护动物中华秋沙鸭——一种被称为"鸟类大熊猫"的珍稀濒危物种，对水质要求极为苛刻，是湿地生态健康的指示物种。'
+        },
+        {
+            name: '涨渡湖湿地',
+            lat: 30.65,
+            lng: 114.72,
+            type: 'provincial',
+            heroImg: 'images/wetland_45.jpg',
+            birdCount: 98,
+            birds: [
+                { name: '青头潜鸭', img: 'images/wetland_46.jpg' },
+                { name: '白鹭',     img: 'images/wetland_47.jpg' },
+                { name: '夜鹭',     img: 'images/wetland_48.png' },
+                { name: '斑嘴鸭',   img: 'images/wetland_49.jpg' },
+            ],
+            summary: '涨渡湖湿地位于武汉市新洲区，是长江北岸的一处典型通江湖泊湿地，历史上与长江直接相连。湖区拥有大面积的水杉林——"水上森林"景观，杉林倒映水中，景色绝美。这里是全球极危物种青头潜鸭在武汉地区的重要栖息地之一，也是多种鹭类和雁鸭类的理想家园。'
+        },
+        {
+            name: '石首天鹅洲湿地',
+            lat: 29.78,
+            lng: 112.42,
+            type: 'national',
+            heroImg: 'images/wetland_50.png',
+            birdCount: 125,
+            birds: [
+                { name: '黑鹳',     img: 'images/wetland_51.jpg' },
+                { name: '东方白鹳', img: 'images/wetland_52.jpg' },
+                { name: '小天鹅',   img: 'images/wetland_53.jpg' },
+                { name: '豆雁',     img: 'images/wetland_54.jpg' },
+                { name: '鸿雁',     img: 'images/wetland_55.jpg' },
+            ],
+            summary: '石首天鹅洲湿地位于荆州市石首市的长江故道，是国家级自然保护区（长江天鹅洲白鱀豚国家级自然保护区）。天鹅洲是长江中游保存最完好的湿地生态系统之一，不仅为麋鹿、江豚提供了栖息家园，也是众多珍稀水鸟的重要栖息地和越冬地。每年冬季，成群的小天鹅来此越冬，"天鹅洲"因此得名。'
+        },
+        {
+            name: '斧头湖湿地',
+            lat: 30.05,
+            lng: 114.25,
+            type: 'provincial',
+            heroImg: 'images/wetland_56.jpg',
+            birdCount: 82,
+            birds: [
+                { name: '须浮鸥',   img: 'images/wetland_57.jpg' },
+                { name: '白鹭',     img: 'images/wetland_58.jpg' },
+                { name: '池鹭',     img: 'images/wetland_59.jpg' },
+                { name: '绿头鸭',   img: 'images/wetland_60.jpg' },
+            ],
+            summary: '斧头湖是湖北省第四大湖泊，位于武汉市江夏区与咸宁市交界处，水域面积约162平方公里。斧头湖是长江中游重要的调蓄湖泊和淡水渔业基地，湖区水生植物繁茂，为水鸟提供了丰富的食物来源和良好的栖息环境，是鹭类、鸥类和雁鸭类的重要栖息地。'
+        },
+        {
+            name: '黄盖湖湿地',
+            lat: 29.72,
+            lng: 113.62,
+            type: 'other',
+            heroImg: 'images/wetland_61.jpg',
+            birdCount: 88,
+            birds: [
+                { name: '白琵鹭',   img: 'images/wetland_62.jpg' },
+                { name: '苍鹭',     img: 'images/wetland_63.jpg' },
+                { name: '斑嘴鸭',   img: 'images/wetland_64.jpg' },
+                { name: '红嘴鸥',   img: 'images/wetland_65.jpg' },
+            ],
+            summary: '黄盖湖位于湖北省赤壁市与湖南省临湘市交界处，是长江中游的一处跨省界淡水湖泊湿地，因三国时期东吴名将黄盖在此操练水军而得名。湖区湿地生态环境良好，水生动植物资源丰富，每年吸引大量候鸟来此栖息，是湘鄂两省交界处的重要湿地生态系统。'
+        }
+    ];
+
+
+    /* ================================================================
+       二、初始化 Leaflet 地图
+       ================================================================ */
+    const map = L.map('map', {
+        // 地图中心：湖北省地理中心
+        center: [30.97, 112.27],
+        // 缩放级别：可看到湖北省全境
+        zoom: 8,
+        // 最小缩放：限制在能看到湖北省的范围
+        minZoom: 6,
+        // 最大缩放
+        maxZoom: 18,
+        // 拖动惯性
+        inertia: true,
+        // 缩放动画
+        zoomAnimation: true,
+    });
+
+    /* ================================================================
+       三、添加底图图层
+
+       底图策略：
+         1. 默认：Esri World Topo Map（自然地形）
+         2. 备选：高德标准地图（中文标注，国内低延迟）
+         3. 备选：高德卫星影像
+       ================================================================ */
+
+    // ---- Esri 自然地形（默认底图，效果接近 Stamen Terrain） ----
+    const esriTerrain = L.tileLayer(
+        'https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}',
+        {
+            attribution: '© Esri | National Geographic | Garmin | HERE | FAO | NOAA | USGS',
+            maxZoom: 18,
+            minZoom: 6,
+        }
+    ).addTo(map);  // ← 默认加载地形底图
+
+    // ---- 高德标准地图（中文标注，国内首选） ----
+    const gaodeRoad = L.tileLayer(
+        'https://webrd0{s}.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=8&x={x}&y={y}&z={z}',
+        {
+            subdomains: '1234',
+            attribution: '© 高德地图',
+            maxZoom: 18,
+            minZoom: 6,
+        }
+    );
+
+    // ---- 高德卫星影像 ----
+    const gaodeSatellite = L.tileLayer(
+        'https://webst0{s}.is.autonavi.com/appmaptile?style=6&x={x}&y={y}&z={z}',
+        {
+            subdomains: '1234',
+            attribution: '© 高德地图 卫星影像',
+            maxZoom: 18,
+            minZoom: 6,
+        }
+    );
+
+    // ---- 地形底图加载检测：3 秒内无瓦片则自动切到高德 ----
+    let terrainLoaded = false;
+    esriTerrain.on('tileload', function() { terrainLoaded = true; });
+
+    setTimeout(function() {
+        if (!terrainLoaded) {
+            console.warn('⚠️ Esri 地形底图加载缓慢，自动切换为高德底图...');
+            map.removeLayer(esriTerrain);
+            gaodeRoad.addTo(map);
+            if (!document.getElementById('tileWarning')) {
+                var tip = document.createElement('div');
+                tip.id = 'tileWarning';
+                tip.style.cssText = 'position:absolute;top:100px;left:50%;transform:translateX(-50%);' +
+                    'z-index:2000;background:rgba(255,152,0,0.9);color:#fff;padding:8px 18px;' +
+                    'border-radius:20px;font-size:13px;pointer-events:none;';
+                tip.textContent = '已自动切换至高德底图（地形底图不可用）';
+                document.body.appendChild(tip);
+                setTimeout(function() { tip.remove(); }, 4000);
+            }
+        }
+    }, 3000);
+
+    // ---- 图层切换控件 ----
+    const baseLayers = {
+        '🏔️ 自然地形': esriTerrain,
+        '🗺️ 高德地图': gaodeRoad,
+        '🛰️ 卫星影像': gaodeSatellite,
+    };
+    L.control.layers(baseLayers, null, {
+        position: 'topright',
+        collapsed: true,  // 折叠样式，节省空间
+    }).addTo(map);
+
+    // ---- 比例尺控件 ----
+    L.control.scale({
+        metric: true,       // 公制（km）
+        imperial: false,    // 不使用英制
+        position: 'bottomleft',
+        maxWidth: 200,
+    }).addTo(map);
+
+
+    /* ================================================================
+       3.5、湖北省省界勾勒（异步加载 GeoJSON）
+
+       数据源：阿里云 DataV GeoAtlas（geo.datav.aliyun.com）
+       行政代码 420000 = 湖北省
+       层级说明：GeoJSON 默认渲染在 overlayPane(z=400)，
+       湿地标记在 markerPane(z=600)，标记天然在省界之上，无需手动调 z-index。
+       ================================================================ */
+
+    if (location.protocol === 'file:') { console.log('ℹ️ 本地打开，跳过省界加载（部署到服务器后自动显示）'); } else { fetch('https://geo.datav.aliyun.com/areas_v3/bound/420000.json')
+        .then(function(resp) {
+            if (!resp.ok) throw new Error('HTTP ' + resp.status);
+            return resp.json();
+        })
+        .then(function(geoData) {
+            L.geoJSON(geoData, {
+                interactive: false,
+                style: {
+                    fillColor: '#5d8a5d',
+                    fillOpacity: 0.04,
+                    color: '#5d7f5d',
+                    weight: 2.2,
+                    opacity: 0.45,
+                    dashArray: '8, 6',
+                    lineJoin: 'round',
+                    lineCap: 'round',
+                }
+            }).addTo(map);
+            console.log('✅ 湖北省界加载完成（简化版 50KB）');
+        })
+        .catch(function(err) {
+            console.warn('⚠️ 湖北省界数据加载失败：', err.message);
+        });
+    }  // ← else 块结束
+
+
+    /* ================================================================
+       四、根据湿地类型返回颜色 class 与中文标签
+       ================================================================ */
+    function getTypeInfo(type) {
+        const map = {
+            ramsar:    { cls: 'ramsar',    label: '国际重要湿地' },
+            national:  { cls: 'national',  label: '国家级保护区' },
+            provincial:{ cls: 'provincial',label: '省级保护区' },
+            other:     { cls: 'other',     label: '重要湿地' },
+        };
+        return map[type] || map.other;
+    }
+
+    /* ================================================================
+       五、自定义 DivIcon 标记（水滴造型，按湿地类型配色）
+       ================================================================ */
+    function createWetlandIcon(type) {
+        const info = getTypeInfo(type);
+        return L.divIcon({
+            className: 'custom-marker',
+            html: `<div class="marker-inner ${info.cls}"></div>`,
+            iconSize: [36, 36],
+            iconAnchor: [18, 36],
+            popupAnchor: [0, -40],
+        });
+    }
+
+    /* ================================================================
+       六、构建弹窗 HTML 内容
+
+       弹窗包含：
+        1. 湿地名称 + 类型标签
+        2. 实景图片
+        3. 鸟类总数统计
+        4. 鸟类种类图文列表
+        5. 生态概况文字
+       ================================================================ */
+    function buildPopupContent(w) {
+        const info = getTypeInfo(w.type);
+
+        // 鸟类卡片列表 HTML
+        const birdCardsHTML = w.birds.map(b => `
+            <div class="bird-card">
+                <img src="${b.img}"
+                     alt="${b.name}"
+                     loading="lazy"
+                     onerror="this.style.display='none';this.nextElementSibling.style.display='block';">
+                <!-- 图片加载失败时的文字兜底 -->
+                <span style="display:none;font-size:11px;color:#888;padding:4px;">📷 ${b.name}</span>
+                <div class="bird-name">${b.name}</div>
+            </div>
+        `).join('');
+
+        // 组装完整弹窗 HTML
+        return `
+            <div class="wetland-popup">
+                <!-- 标题 + 类型标签 -->
+                <div class="popup-header">
+                    <h2>🏞️ ${w.name}</h2>
+                    <span class="badge badge-${info.cls}">${info.label}</span>
+                </div>
+
+                <!-- 湿地实景图片 -->
+                <img class="hero-img"
+                     src="${w.heroImg}"
+                     alt="${w.name}实景"
+                     loading="lazy"
+                     onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%22600%22 height=%22300%22><rect fill=%22%23c8e6c9%22 width=%22600%22 height=%22300%22/><text x=%22300%22 y=%22160%22 text-anchor=%22middle%22 font-size=%2220%22 fill=%22%232e7d32%22>🌿 ${w.name}（图片加载中...）</text></svg>';">
+
+                <!-- 鸟类统计 -->
+                <div class="bird-stats">
+                    <span class="count-num">${w.birdCount}</span>
+                    <span class="count-label">种<br>栖息鸟类</span>
+                </div>
+
+                <!-- 鸟类种类图文列表 -->
+                <div class="bird-gallery">
+                    ${birdCardsHTML}
+                </div>
+
+                <!-- 生态概况文字 -->
+                <div class="eco-summary">
+                    <strong>📖 生态概况：</strong>${w.summary}
+                </div>
+            </div>
+        `;
+    }
+
+    /* ================================================================
+       七、在地图上添加所有湿地标记
+
+       使用 Leaflet 的 GeoJSON 方式或者直接循环添加 Marker。
+       每个 Marker 绑定 click 事件显示信息弹窗。
+       ================================================================ */
+    let markerCountVal = 0;
+    var popupDownList = ["丹江口水库湿地", "大九湖湿地"];
+    wetlandsData.forEach(wetland => {
+        var isNorth = popupDownList.indexOf(wetland.name) !== -1;
+        const marker = L.marker([wetland.lat, wetland.lng], {
+            icon: createWetlandIcon(wetland.type),
+            title: wetland.name,
+            riseOnHover: true,
+            pane: 'markerPane',
+        }).addTo(map);
+        markerCountVal++;
+        var popupOpts = {
+            maxWidth: 370, minWidth: 260, maxHeight: 480,
+            className: '', closeButton: true, autoPan: true,
+            autoPanPaddingTopLeft: [50, 120],
+            autoPanPaddingBottomRight: [50, 60],
+        };
+        if (isNorth) { popupOpts.offset = [0, 36]; }
+        marker.bindPopup(buildPopupContent(wetland), popupOpts);
+        marker.bindTooltip(wetland.name, {
+            direction: isNorth ? 'bottom' : 'top',
+            offset: isNorth ? [0, 36] : [0, -40],
+            className: '',
+        });
+    });
+
+    // 更新底部标记计数
+    var mcEl = document.getElementById('markerCount');
+    if (mcEl) { mcEl.textContent = markerCountVal; }
+    console.log('📍 已在地图上创建 ' + markerCountVal + ' 个湿地标记');
+
+
+    /* ================================================================
+       八、地图边界限制（可选：限制在湖北省周边，防止拖出太远）
+
+       湖北省大致范围：
+         纬度 29.0°N – 33.3°N
+         经度 108.3°E – 116.1°E
+       设置 maxBounds 可防止用户拖到完全不相关的区域。
+       ================================================================ */
+    const hubeiBounds = L.latLngBounds(
+        [28.5, 107.5],   // 西南角
+        [33.8, 116.8]    // 东北角
+    );
+    map.setMaxBounds(hubeiBounds);
+    // 设置一个比 maxBounds 稍小的边界作为初始视图限制
+    map.on('drag', function() {
+        map.panInsideBounds(hubeiBounds, { animate: true, padding: [20, 20] });
+    });
+
+
+    /* ================================================================
+       九、可选：地图加载完成后自动定位到所有湿地的最佳视野
+
+       将所有湿地标记点纳入一个 group 计算 bounds，
+       让地图自动缩放并居中到能看全所有标记的位置。
+       （此功能作为可选按钮，也可直接调用 fitBounds）
+       ================================================================ */
+    // 收集所有湿地的经纬度点
+    const allLatLngs = wetlandsData.map(w => [w.lat, w.lng]);
+
+    // 页面加载后 500ms 自动适配视野（给地图渲染留出时间）
+    setTimeout(() => {
+        const bounds = L.latLngBounds(allLatLngs);
+        map.fitBounds(bounds, {
+            padding: [50, 50],   // 四周留白（像素）
+            maxZoom: 10,         // 最大缩放级别
+            animate: true,
+            duration: 0.8,       // 动画时长（秒）
+        });
+    }, 600);
+
+
+    /* ================================================================
+       十、键盘快捷键（增强交互体验）
+
+       - 按 F 键：自动适配视野到所有湿地
+       - 按 +/- 键：缩放地图
+       ================================================================ */
+    document.addEventListener('keydown', function(e) {
+        // 避免在输入框中触发
+        if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+
+        switch (e.key.toLowerCase()) {
+            case 'f':
+                // F 键：fit 到所有湿地
+                map.fitBounds(L.latLngBounds(allLatLngs), {
+                    padding: [50, 50],
+                    maxZoom: 10,
+                    animate: true,
+                });
+                break;
+            case '+':
+            case '=':
+                map.zoomIn();
+                break;
+            case '-':
+                map.zoomOut();
+                break;
+            default:
+                break;
+        }
+    });
+
+
+    /* ================================================================
+       十一、控制台欢迎信息
+       ================================================================ */
+    console.log(
+        '%c🌿 湖北省湿地分布地图 %c已就绪',
+        'font-size:18px;color:#2e7d32;',
+        'font-size:14px;color:#555;'
+    );
+    console.log(
+        '%c📌 %c共加载 %c' + wetlandsData.length + '%c 处湿地 | %c🖱️ 点击标记查看详情 %c| %c⌨️ 按 F 键自适应视野',
+        'color:#333;', 'color:#555;',
+        'color:#e53935;font-weight:bold;',
+        'color:#555;',
+        'color:#333;', 'color:#555;', 'color:#333;'
+    );
+
+    } // ← initMap() 函数结束
+    </script>
+
+</body>
+</html>
